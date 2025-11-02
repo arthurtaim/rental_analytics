@@ -1,0 +1,134 @@
+Сервер Airflow: ssh root@5.129.215.130
+Пароль сервер: bC7.TW1NWCcgTd
+
+Логи airflow: admin  qhaGYDc7ruWNQnT2(ОБНОВЛЕНИЕ ПРИ КАЖДОМ ПЕРЕЗАПУСКЕ СЕРВЕРА)
+Подключение к ui: http://5.129.215.130:8080/
+
+Postgres:
+Хост: 147.45.237.172:5432
+БД: demo_rental_db
+Admin: admin_mcp F4u-corsair
+
+команда для rsync dag: rsync -avz /Users/arthurtaym/MCP/Rental_analytics/dags/ root@5.129.215.130:/root/airflow-lite/dags/
+команда для rsync ods: rsync -avz --delete \
+      /Users/arthurtaym/MCP/Rental_analytics/sql/ods/ \
+      root@5.129.215.130:/root/airflow-lite/sql/ods/
+команда для rsync dds: rsync -avz --delete \
+      /Users/arthurtaym/MCP/Rental_analytics/sql/dds/ \
+      root@5.129.215.130:/root/airflow-lite/sql/dds/
+команда для rsync dict: rsync -avz --delete \
+      /Users/arthurtaym/MCP/Rental_analytics/sql/dict/ \
+      root@5.129.215.130:/root/airflow-lite/sql/dict/
+
+команды для dry run запуска airflow:
+docker compose up -d
+пароль и логин
+docker compose logs airflow | grep -Ei "user|username|login|password"
+
+список дагов docker compose exec airflow airflow dags list
+
+################################################################################
+# STG                                                                         #
+################################################################################
+docker compose exec airflow  airflow tasks test daily_amocrm_load_cars     extract_cars        2025-07-31
+docker compose exec airflow  airflow tasks test daily_amocrm_load_cars     load_cars_to_pg     2025-07-31
+
+docker compose exec airflow  airflow tasks test daily_amocrm_load_clients  extract_clients     2025-07-31
+docker compose exec airflow  airflow tasks test daily_amocrm_load_clients  load_clients        2025-07-31
+
+docker compose exec airflow  airflow tasks test daily_amocrm_load_leads    extract_leads       2025-07-31
+docker compose exec airflow  airflow tasks test daily_amocrm_load_leads    load_leads          2025-07-31
+
+
+################################################################################
+# ODS (SCD-2 history)                                                         #
+################################################################################
+docker compose -f ./docker-compose.yaml exec airflow \
+  airflow tasks test daily_load_ods_cars merge_ods_cars "$RUN_DATE"
+
+docker compose -f ./docker-compose.yaml exec airflow \
+  airflow tasks test daily_load_ods_clients merge_ods_clients "$RUN_DATE"
+
+docker compose -f ./docker-compose.yaml exec airflow \
+  airflow tasks test daily_load_ods_leads merge_ods_leads "$RUN_DATE"
+
+
+################################################################################
+# DDS – измерения (dim_car, dim_client)                                       #
+################################################################################
+docker compose -f ./docker-compose.yaml exec airflow \
+  airflow tasks test daily_build_dds_dim merge_dim_car "$RUN_DATE"
+
+docker compose -f ./docker-compose.yaml exec airflow \
+  airflow tasks test daily_build_dds_dim merge_dim_client "$RUN_DATE"
+
+docker compose -f ./docker-compose.yaml exec airflow \
+  airflow tasks test daily_build_dds_dim merge_dim_status "$RUN_DATE"
+
+
+
+################################################################################
+# DICT – справочник статусов лидов                                            #
+################################################################################
+docker compose -f ./docker-compose.yaml exec airflow \
+  airflow tasks test daily_build_dict_status_leads extract_statuses_to_stage "$RUN_DATE"
+
+docker compose -f ./docker-compose.yaml exec airflow \
+  airflow tasks test daily_build_dict_status_leads merge_dict_status_leads "$RUN_DATE"
+
+
+
+################################################################################
+# DDS – факты                                                                 #
+################################################################################
+docker compose -f ./docker-compose.yaml exec airflow \
+  airflow tasks test daily_build_dds_fact merge_fact_rentals "$RUN_DATE"
+
+docker compose -f ./docker-compose.yaml exec airflow \
+  airflow tasks test daily_build_dds_fact merge_fact_lead_status_change "$RUN_DATE"
+
+docker compose -f ./docker-compose.yaml exec airflow \
+  airflow tasks test daily_build_dds_fact merge_fact_fleet_usage_day "$RUN_DATE"
+
+
+
+#Общий пакет
+cd ~/airflow-lite
+RUN_DATE="2025-08-24"
+
+# STG (ключевые таски)
+for pair in \
+  "daily_amocrm_load_cars load_cars_to_pg" \
+  "daily_amocrm_load_clients load_clients_to_pg" \
+  "daily_amocrm_load_leads load_leads_to_pg"
+do
+  set -- $pair
+  echo "=== STG dry-run: $1 / $2 @ $RUN_DATE ==="
+  docker compose -f ./docker-compose.yaml exec airflow \
+    airflow tasks test "$1" "$2" "$RUN_DATE"
+done
+
+# ODS init
+for pair in \
+  "daily_load_ods_cars init_ods_cars" \
+  "daily_load_ods_clients init_ods_clients" \
+  "daily_load_ods_leads init_ods_leads"
+do
+  set -- $pair
+  echo "=== ODS init dry-run: $1 / $2 @ $RUN_DATE ==="
+  docker compose -f ./docker-compose.yaml exec airflow \
+    airflow tasks test "$1" "$2" "$RUN_DATE"
+done
+
+# ODS merge
+for pair in \
+  "daily_load_ods_cars merge_ods_cars" \
+  "daily_load_ods_clients merge_ods_clients" \
+  "daily_load_ods_leads merge_ods_leads"
+do
+  set -- $pair
+  echo "=== ODS merge dry-run: $1 / $2 @ $RUN_DATE ==="
+  docker compose -f ./docker-compose.yaml exec airflow \
+    airflow tasks test "$1" "$2" "$RUN_DATE"
+done
+

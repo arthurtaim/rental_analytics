@@ -1,0 +1,153 @@
+Шаблон-памятка: как писать DAG-и для проекта Rental Analytics
+Сохрани эту инструкцию: при любой новой задаче по Airflow придерживайся именно этих правил.
+(Версия окружения — Airflow 3.0.3 + Docker-compose. Python 3.12.)
+
+1 | Расположение файлов
+Каталог в репо	Что кладём
+./dags/	все .py DAG-файлы
+./sql/ods/	01_init_… .sql, merge_ods_… .sql
+./sql/dds/	merge_dim_… .sql, merge_fact_… .sql
+./sql/dm/	витрины / materialized views
+./.env	PG_*, AMO_* переменные (монтируется в контейнер)
+
+Docker-compose уже монтирует ./dags и ./sql в путь /opt/airflow/…
+→ в DAG-ах используем абсолютные строки вроде
+/opt/airflow/sql/ods/merge_ods_cars.sql.
+
+2 | Библиотеки: минимум зависимостей
+НЕ используем PostgresOperator, MySqlOperator, etc → они требуют provider-пакетов.
+Вместо этого:
+
+python
+Копировать
+Редактировать
+from airflow.operators.python import PythonOperator
+
+def run_sql(path: str):
+    # 1. load_dotenv("/opt/airflow/.env")
+    # 2. psycopg2.connect(...)
+    # 3. cur.execute(open(path).read())
+psycopg2-binary, python-dotenv, requests уже есть в requirements.txt.
+
+3 | Подключение к базе
+python
+Копировать
+Редактировать
+load_dotenv("/opt/airflow/.env")
+conn = psycopg2.connect(
+    host=os.getenv("PG_HOST"),
+    port=os.getenv("PG_PORT", 5432),
+    user=os.getenv("PG_USER"),
+    password=os.getenv("PG_PASSWORD"),
+    dbname=os.getenv("PG_DATABASE"),
+)
+Всегда закрывай курсор / соединение через with conn, conn.cursor() as cur:
+или try/ finally.
+
+4 | Схема DAG-ов и зависимости
+less
+Копировать
+Редактировать
+STG  ──┐  daily_amocrm_load_*        (@04:00‒04:10)
+       ├─ ODS  daily_load_ods_*      (@same)  wait STG task
+       └─ DDS  daily_build_dds_dim   (@05:00) wait ODS merge tasks
+            └─ DDS  daily_build_dds_fact (@05:30) wait dim tasks
+Зависимости только через ExternalTaskSensor (pull).
+
+poke_interval = 60, timeout = 60*60, allowed_states = ["success"].
+
+5 | Структура DAG-файла
+python
+Копировать
+Редактировать
+from __future__ import annotations
+import os, psycopg2, requests
+from datetime import datetime, timedelta
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from airflow.sensors.external_task import ExternalTaskSensor
+from dotenv import load_dotenv
+
+SQL_DIR = "/opt/airflow/sql/ods"  # или /dds
+
+def run_sql(path: str): ...
+def sync_something(): ...         # если нужно API
+
+with DAG(
+    dag_id="daily_load_ods_cars",
+    start_date=datetime(2025, 7, 31, 4, 0),
+    schedule="@daily",
+    catchup=False,
+    tags=["ODS", "cars"],
+    description="SCD-2 история автомобилей",
+) as dag:
+
+    wait_stg = ExternalTaskSensor(...)
+    init_ods = PythonOperator(task_id="init",  python_callable=run_sql,
+                              op_args=[f"{SQL_DIR}/01_init_ods_cars.sql"])
+    merge_ods = PythonOperator(task_id="merge", python_callable=run_sql,
+                               op_args=[f"{SQL_DIR}/merge_ods_cars.sql"])
+
+    wait_stg >> init_ods >> merge_ods
+Конвенции имен
+dag_id: daily_<layer>_<object>
+(daily_load_ods_clients, daily_build_dds_fact)
+
+task_id: глагол + объект (extract_cars, merge_dim_car)
+
+tags: слой + сущность (["ODS","clients"])
+
+6 | Время и расписание
+DAG-группа	start_date (Asia/Dubai)	schedule
+STG	2025-07-31 04:00	@daily
+ODS	04:00, 04:05, 04:10 (соответствует STG)	@daily
+DDS dim	05:00	@daily
+DDS fact	05:30	@daily
+
+catchup=False во всех DAG-ах.
+
+Если нужен ad-hoc запуск → UI → Trigger Dag.
+
+7 | Работа с API amoCRM
+Авторизация: Bearer AMO_TOKEN
+(обновление токенов реализуется вне DAG-ов, здесь считаем валидным).
+
+Запросы ≤ 7 req/s → time.sleep(0.15) в циклах.
+
+Для справочников статусов лидов используем endpoint
+GET https://{sub}.amocrm.ru/api/v4/leads/pipelines?with=statuses.
+
+8 | Логи и печать
+Используй print(f"[task] message") или стандартный logging.
+
+Не оставляй print внутри библиотечных циклов-парсеров
+→ Airflow логирует stdout сам.
+
+9 | SQL-скрипты
+ODS: SCD-2 логика (effective_to, is_current).
+
+DDS dim: INSERT … ON CONFLICT (id) → актуальная версия.
+
+DDS fact: ON CONFLICT (pk) DO UPDATE или полное пересоздание за интервал.
+
+Всегда начинай CREATE SCHEMA IF NOT EXISTS dds; / ods;.
+
+10 | Проверка (dry-run)
+bash
+Копировать
+Редактировать
+docker compose exec airflow \
+  airflow dags test daily_load_ods_cars 2025-07-31
+CLI выполнит DAG целиком в «локальном» режиме.
+Все SQL-таски должны завершиться success.
+
+TL;DR
+PythonOperator + psycopg2, никакого PostgresOperator.
+
+Зависимости — ExternalTaskSensor.
+
+SQL-файлы лежат в ./sql/... и вызываются run_sql(path).
+
+Структура, расписание и теги строго по таблице выше.
+
+Любыми новыми DAG-ами пополняем ту же схему (STG → ODS → DDS).

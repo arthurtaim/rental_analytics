@@ -1,0 +1,21 @@
+[
+    {
+      "name": "Car Rental",
+      "is_main": false,
+      "is_unsorted_on": false,
+      "sort": 100,
+      "_embedded": {
+        "statuses": [
+          { "name": "Inquiry",             "sort": 10 },
+          { "name": "Quote Sent",          "sort": 20 },
+          { "name": "Deposit Pending",     "sort": 30 },
+          { "name": "Confirmed",           "sort": 40 },
+          { "name": "On Rent",             "sort": 50 },
+          { "name": "Returned",            "sort": 60 },
+          { "name": "Closed",              "sort": 70, "type": 1 },
+          { "name": "Cancelled / No-show", "sort": 80, "type": 2 }
+        ]
+      }
+    }
+  ]
+  

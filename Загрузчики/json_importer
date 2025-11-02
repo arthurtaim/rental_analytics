@@ -1,0 +1,16 @@
+import os, json, requests, sys
+
+CATALOG_ID = 8527  # replace if different
+BASE = "https://rentanalyticstest.amocrm.ru"
+TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImp0aSI6IjVhMzFiZWFlNzZlMDJhODdkNzViNmEzZDIzNWI4Nzk4ODc3NWZjMzllZTY5ZDEzMmRiMDU5ZWJjZDcwYzBjN2U1MGYwYTZmYWYxMDI2N2RjIn0.eyJhdWQiOiIxMzhmY2UxMy05ODE0LTQxNmMtYjg0Zi1mY2JlYTkxYTk2OWIiLCJqdGkiOiI1YTMxYmVhZTc2ZTAyYTg3ZDc1YjZhM2QyMzViODc5ODg3NzVmYzM5ZWU2OWQxMzJkYjA1OWViY2Q3MGMwYzdlNTBmMGE2ZmFmMTAyNjdkYyIsImlhdCI6MTc1Mjk4NTMyMCwibmJmIjoxNzUyOTg1MzIwLCJleHAiOjE3NjA3NDU2MDAsInN1YiI6IjEyNzY3NzQ2IiwiZ3JhbnRfdHlwZSI6IiIsImFjY291bnRfaWQiOjMyNTU5Njc0LCJiYXNlX2RvbWFpbiI6ImFtb2NybS5ydSIsInZlcnNpb24iOjIsInNjb3BlcyI6WyJjcm0iLCJmaWxlcyIsImZpbGVzX2RlbGV0ZSIsIm5vdGlmaWNhdGlvbnMiLCJwdXNoX25vdGlmaWNhdGlvbnMiXSwiaGFzaF91dWlkIjoiM2VmZTk2MzYtYmEwYi00ZTQxLWIyNjYtMWRkZTNkMGY3ODQ4IiwiYXBpX2RvbWFpbiI6ImFwaS1iLmFtb2NybS5ydSJ9.deohcU9eAwbmY325Uwq9uL5XZeACCF6OU9azxfIH9QfG2JwFTOG-kktQZo-hQHS4KbQj3tkWxFjR-03lqvG-VFUvXiKIlIXvmZwFpEoaB2oxRzPj37ryXwxO4Wiunp8gzFSuYLnAzgpZr1h6qjI_62IOhQy_O-aWQsjJL4dsKx_b7jio-Wp71-p32-2zg15xX-No9OpJml8Cxmpxb4nRrSbX6v8Ged1gZyjsqasu_T1NOPFtsZUVJzkD0B-Gj0UBsQh10iupDZZEvx3cly6FyFMHpSnvlrw5BI4pLaOqy_kQjqLai7d3AHW2aijJyI5_kGkoUCRsfrXgSfNqt0NZvw"
+
+HEAD = {
+    "Authorization": f"Bearer {TOKEN}",
+    "Content-Type": "application/json"
+}
+
+elements = json.load(open("/Users/arthurtaym/MCP/Rental_analytics/Исходные/clients_catalog_elements_final.json"))
+r = requests.post(f"{BASE}/api/v4/catalogs/{CATALOG_ID}/elements",
+                  headers=HEAD, json=elements, timeout=30)
+print("Status:", r.status_code)
+print(r.json())
